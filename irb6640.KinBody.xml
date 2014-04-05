@@ -1,7 +1,28 @@
 <?xml version="1.0" ?>
 <Robot name="irb_6640">
     <KinBody>
+        <Body name="track" type="static">
+            <Translation>3.5 0 .1555</Translation>
+            <Geom type = "box">
+                <extents> 3.5 .4425 0.1555</extents>
+                <diffuseColor>1.000000 0.430000 0.000000</diffuseColor>
+                <ambientColor>0 0 0</ambientColor>
+             </Geom>
+        </Body> 
+        <Body name="base_base" type="dynamic">
+            <offsetfrom>track</offsetfrom>
+            <translation>-2.9 0 .19994</translation>
+            <quat>1.000000 0.000000 0.000000 0.000000</quat>
+            <Geom type = "box">                
+                <extents> .6 .46 0.0444</extents>
+                <diffuseColor>0 0 0</diffuseColor>
+                <ambientColor>0 0 0</ambientColor>
+             </Geom>
+        </Body>                
         <Body name="base_link" type="dynamic">
+            <offsetfrom>base_base</offsetfrom>
+            <translation>.19 0.000000 .0444</translation>
+            <quat>1.000000 0.000000 0.000000 0.000000</quat>
             <Geom render="false" type="trimesh">
                 <Data>visual/BASE_LINK.stl</Data>
                 <translation>0.000000 0.000000 0.000000</translation>
@@ -172,6 +193,30 @@
                 <transparency>0.000000</transparency>
             </Geom>
         </Body>
+        <Joint name="joint_0" type="slider" enable="true">
+            <Body>track</Body>
+            <Body>base_base</Body>
+            <offsetfrom>track</offsetfrom>
+            <anchor>0.000000 0.000000 0.311</anchor>
+            <axis>1.000000 0.000000 0.000000</axis>
+            <maxvel>1.7453000000000001</maxvel>
+        </Joint>
+        <Joint name="base_dummy" type="hinge" mimic_pos="0" >
+          <Body>base_base</Body>
+          <Body>base_link</Body>
+          <axis>0 0 1</axis>
+          <anchor>0.055000 0.000000 0.000000</anchor>
+          <resolution>1</resolution>
+        </Joint>
+        <!--Joint name="joint_10" type="hinge" enable="true">
+            <Body>base_base</Body>
+            <Body>base_link</Body>
+            <offsetfrom>base_base</offsetfrom>
+            <anchor>0.000000 0.000000 0.0888</anchor>
+            <axis>0.000000 0.000000 0.000000</axis>
+            <maxvel>1.7453000000000001</maxvel>
+            <limitsrad>-1.134000 1.485500</limitsrad>
+        </Joint-->
         <Joint name="joint_1" type="hinge" enable="true">
             <Body>base_link</Body>
             <Body>link_1</Body>

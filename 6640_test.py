@@ -13,7 +13,7 @@ from openravepy import *
 #RaveInitialize(True, DebugLevel.Debug)
 
 # Import Dfab Python, Watch out for hard coded directory
-dfab_pack = imp.load_package('dfab', '../dfab/python/dfab/')
+dfab_pack = imp.load_package('dfab', './dfab-master/python/dfab/')
 from dfab.mocap import extract_trajectory, datafiles
 from dfab.geometry.quaternion import to_threexform
 from dfab.rapid.joint_sequence import single_trajectory_program
