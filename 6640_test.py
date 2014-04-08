@@ -212,6 +212,56 @@ class RoboHandler:
 
     return traj_times, joint_traj
 
+  def segmentTransforms(self, trans_times, transforms):
+    '''
+    Takes a path in the form of 4x4 homogeneous transforms and corresponding times, 
+    and segments the path to the motions where the tool path is close to the plastering
+    wall.  Further filters these motions down to vertical motions, and those with more than
+    80 unique timestamps.  Retruns a tuple of times and paths.
+    @ Params : trans_times -> Timestamps corresponsding to transforms[i]
+               transforms  -> 4x4 homogeneous transforms for tool path to follow
+    @ Returns : trans2_times -> List of List of Timestamps corresponding to filtered transforms
+                trans2       -> List of List of 4x4 Homogeneuous Transforms for tool to follow
+                max_id       -> Location of longest path in trans2
+    '''
+
+    count  = 0
+    trans1 = []
+    trans1_times = []
+    trans2 = []
+    trans2_times = []
+    for i in range(0,len(transforms)):
+      if trans[i][1][3] > 2.3:
+          count = count + 1
+          trans1.append(trans[i])
+          trans1_times.append(times[i])
+    for i in range(0,len(trans1)-1):
+      k = i
+      count2 = 0
+      x = []
+      t = []
+      while trans1[k+1][2][3] > trans1[k][2][3] and k < len(trans1)- 2:
+        count2 = count2 + 1
+        x.append(trans1[k])
+        t.append(trans1_times[k])
+        k = k + 1 
+      if count2 > 80:
+        trans2.append(x)
+        trans2_times.append(t)
+
+    lengths = []
+
+    for i in range(0,len(trans2)-1):
+      lengths.append([len(trans2[i]),i])
+
+    l = np.array(lengths)
+    l_sorted = sorted(l, key=lambda j: j[0],reverse=True) 
+    max_id = l_sorted[0][1]
+
+    vertical_move = trans2[max_id]
+    vertical_move_times = trans2_times[max_id]
+
+    return (trans2_times, trans2, max_id)
 
 
 if __name__ == '__main__':
@@ -231,42 +281,10 @@ if __name__ == '__main__':
 
   if args.trajectory != None:
     (trans, times) = robo.getMocapTraj(args.trajectory)
+    (seg_move_times, seg_moves, max_id) = robo.segmentTransforms(times, trans)
+    raw_input('Press enter to execute the trajectory in vertical direction:')
+    robo.moveTransforms(seg_moves[max_id], toolframe=True)
 
-  count  = 0
-  trans1 = []
-  trans1_times = []
-  trans2 = []
-  trans2_times = []
-  for i in range(0,len(trans)):
-    if trans[i][1][3] > 2.3:
-        count = count + 1
-        trans1.append(trans[i])
-        trans1_times.append(times[i])
-  for i in range(0,len(trans1)-1):
-    k = i
-    count2 = 0
-    x = []
-    t = []
-    while trans1[k+1][2][3] > trans1[k][2][3] and k < len(trans1)- 2:
-      count2 = count2 + 1
-      x.append(trans1[k])
-      t.append(trans1_times[k])
-      k = k + 1 
-    if count2 > 80:
-      trans2.append(x)
-      trans2_times.append(t)
-
-  lengths = []
-
-  for i in range(0,len(trans2)-1):
-    lengths.append([len(trans2[i]),i])
-
-  l = np.array(lengths)
-  l_sorted = sorted(l, key=lambda j: j[0],reverse=True) 
-  max_id = l_sorted[0][1]
-
-  vertical_move = trans2[max_id]
-  vertical_move_times = trans2_times[max_id]
 
 
   # Set Camera
@@ -274,9 +292,6 @@ if __name__ == '__main__':
   robo.env.GetViewer().SetCamera(t)
 
   robo.robot.SetVisible(True)
-
-  raw_input('Press enter to execute the trajectory in vertical direction:')
-  robo.moveTransforms(vertical_move, toolframe=True)
 
   # Drop Into Shell
   import IPython
