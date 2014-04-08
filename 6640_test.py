@@ -162,9 +162,9 @@ class RoboHandler:
     # Frame change is rotate about z by 90, then x by -90
     frame_change = np.dot(t_z_90, t_y_m90)
     # Return H_wt dot H_tr
-    transform[2, 3] += .451  # Ground to Robot Height Offset 
-    transform[0, 3] += .55   # X Addition
-    transform[1, 3] -= .22 # Y Offset
+    transform[2, 3] += .351  # Ground to Robot Height Offset 
+    transform[0, 3] += .35   # X Addition
+    transform[1, 3] -= 0.15 # Y Offset
     return np.dot(transform, frame_change)
 
   def writeModFile(self, times, transforms, filename='seq.mod', toolframe=False):
@@ -181,7 +181,7 @@ class RoboHandler:
     data = [[time, [0] + j_vals.tolist()] for (time, j_vals) in zip(times, joints)]
 
     # Write File
-    mod_file = single_trajectory_program(data)
+    mod_file = single_trajectory_program(data, a_unit='radian', l_unit='meter')
 
     f = open(filename, 'w')
     f.write(mod_file)
