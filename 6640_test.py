@@ -13,7 +13,7 @@ from openravepy import *
 #RaveInitialize(True, DebugLevel.Debug)
 
 # Import Dfab Python, Watch out for hard coded directory
-dfab_pack = imp.load_package('dfab', './dfab-master/python/dfab/')
+dfab_pack = imp.load_package('dfab', '../dfab/python/dfab/')
 from dfab.mocap import extract_trajectory, datafiles
 from dfab.geometry.quaternion import to_threexform
 from dfab.rapid.joint_sequence import single_trajectory_program
@@ -89,9 +89,9 @@ class RoboHandler:
     # scale the millimeters from the file to meters for the graphics
     transform[0:3, 3] *= 0.001
     # Swap X and Y, as they're flipped between data and sim bot
-    temp = transform[1, 3] 
-    transform[1, 3] = transform[0, 3] 
-    transform[0, 3] = temp
+    #temp = transform[1, 3] 
+    #transform[1, 3] = transform[0, 3] 
+    #transform[0, 3] = temp
 
     return
 
@@ -109,7 +109,7 @@ class RoboHandler:
       print "No Solution Found!"
       print Tgoal
     # If we're actually supposed to move, do it
-    if move:
+    elif move:
       self.robot.SetDOFValues(sol, self.manip.GetArmIndices())
     return sol
 
@@ -149,22 +149,25 @@ class RoboHandler:
     '''
     # Rotate about z by 90 degrees
     t_z_90 = numpy.array([[0, -1, 0, 0], 
-                          [1,  0, 0, 0], 
-                          [0,  0, 1, 0], 
-                          [0, 0, 0, 1]])
+                           [1,  0, 0, 0], 
+                           [0,  0, 1, 0], 
+                           [0,  0, 0, 1]])
 
     # Rotate about x by -90 degrees
-    t_x_m90 = numpy.array([[1,  0, 0, 0], 
-                           [0,  0, 1, 0], 
-                           [0, -1, 0, 0], 
+    t_y_m90 = numpy.array([[0, 0, 1, 0], 
+                           [0, 1, 0, 0], 
+                           [-1, 0, 0, 0], 
                            [0, 0, 0, 1]])
 
     # Frame change is rotate about z by 90, then x by -90
-    frame_change = np.dot(t_z_90, t_x_m90)
+    frame_change = np.dot(t_z_90, t_y_m90)
     # Return H_wt dot H_tr
+    transform[2, 3] += .451  # Ground to Robot Height Offset 
+    transform[0, 3] += .55   # X Addition
+    transform[1, 3] -= .22 # Y Offset
     return np.dot(transform, frame_change)
 
-  def writeModFile(self, times, transforms, toolframe=False):
+  def writeModFile(self, times, transforms, filename='seq.mod', toolframe=False):
     '''
     Writes a mod file for the trajectory described by t (the list of times) and
     transforms (the list of 4x4 homogeneous transforms the robots end effector)
@@ -178,7 +181,11 @@ class RoboHandler:
     data = [[time, [0] + j_vals.tolist()] for (time, j_vals) in zip(times, joints)]
 
     # Write File
-    single_trajectory_program(data)
+    mod_file = single_trajectory_program(data)
+
+    f = open(filename, 'w')
+    f.write(mod_file)
+    f.close()
 
   def generateJointTrajectoryFromIK(self, times, transforms, toolframe=False):
     '''
@@ -225,11 +232,51 @@ if __name__ == '__main__':
   if args.trajectory != None:
     (trans, times) = robo.getMocapTraj(args.trajectory)
 
+  count  = 0
+  trans1 = []
+  trans1_times = []
+  trans2 = []
+  trans2_times = []
+  for i in range(0,len(trans)):
+    if trans[i][1][3] > 2.3:
+        count = count + 1
+        trans1.append(trans[i])
+        trans1_times.append(times[i])
+  for i in range(0,len(trans1)-1):
+    k = i
+    count2 = 0
+    x = []
+    t = []
+    while trans1[k+1][2][3] > trans1[k][2][3] and k < len(trans1)- 2:
+      count2 = count2 + 1
+      x.append(trans1[k])
+      t.append(trans1_times[k])
+      k = k + 1 
+    if count2 > 80:
+      trans2.append(x)
+      trans2_times.append(t)
+
+  lengths = []
+
+  for i in range(0,len(trans2)-1):
+    lengths.append([len(trans2[i]),i])
+
+  l = np.array(lengths)
+  l_sorted = sorted(l, key=lambda j: j[0],reverse=True) 
+  max_id = l_sorted[0][1]
+
+  vertical_move = trans2[max_id]
+  vertical_move_times = trans2_times[max_id]
+
+
   # Set Camera
   t = np.array([ [0, -1.0, 0, 2.25], [-1.0, 0, 0, 0], [0, 0, -1.0, 4.0], [0, 0, 0, 1.0] ])  
   robo.env.GetViewer().SetCamera(t)
 
   robo.robot.SetVisible(True)
+
+  raw_input('Press enter to execute the trajectory in vertical direction:')
+  robo.moveTransforms(vertical_move, toolframe=True)
 
   # Drop Into Shell
   import IPython
