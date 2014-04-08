@@ -181,7 +181,63 @@
                 <transparency>0.000000</transparency>
             </Geom>
         </Body>
-        <Body name="tool0" type="dynamic">
+        <Body name="ATI_plate" type="dynamic">
+            <offsetfrom>link_6</offsetfrom>            
+            <translation>0.10815 0.000000 0.000000</translation>
+            <quat>1.000000 0.000000 0.000000 0.000000</quat>
+            <Geom render="true" type="cylinder">
+                <rotationaxis>0 0 1 90</rotationaxis>
+                <radius>0.1524</radius>
+                <height>0.1397</height>
+                <diffuseColor>1 0.43 0.0</diffuseColor>
+            </Geom>
+        </Body>
+        <Body name="Schunck_Gripper" type="dynamic">
+            <offsetfrom>ATI_plate</offsetfrom>            
+            <translation>0.1397 0.000000 0.000000</translation>
+            <quat>1.000000 0.000000 0.000000 0.000000</quat>
+            <Geom render="true" type="cylinder">
+                <rotationaxis>0 0 1 90</rotationaxis>
+                <radius>0.1016</radius> <!--4 inches-->
+                <height>0.1397</height>
+                <diffuseColor>1 0.43 0.0</diffuseColor>
+            </Geom>
+        </Body>
+        <!-- If ATI_plate and Schunck_Gripper don't work, replace with below -->
+        <!-- <Body name="Schunck_Gripper" type="dynamic">
+            <offsetfrom>link_6</offsetfrom>            
+            <translation>0.178 0.000000 0.000000</translation>
+            <quat>1.000000 0.000000 0.000000 0.000000</quat>
+            <Geom render="true" type="cylinder">
+                <rotationaxis>0 0 1 90</rotationaxis>
+                <radius>0.1524</radius>
+                <height>0.2794</height>
+                <diffuseColor>1 0.43 0.0</diffuseColor>
+            </Geom>
+        </Body> -->
+        <Body name="trowel_handle" type="dynamic">
+            <offsetfrom>Schunck_Gripper</offsetfrom>
+            <!-- <translation>0.15478125 0 0.0381</translation> -->
+            <translation>0.08493125 0 0.0381</translation>
+            <quat>1.000000 0.000000 0.000000 0.000000</quat>
+            <Geom type = "box">                
+                <extents>0.01508 0.04 .08</extents>
+                <diffuseColor>0.6 0.6 0.6</diffuseColor>
+                <ambientColor>0 0 0</ambientColor>
+             </Geom>
+        </Body>
+        <Body name="trowel" type="dynamic">
+            <offsetfrom>trowel_handle</offsetfrom>
+            <translation>0.015875 0 0</translation>
+            <quat>1.000000 0.000000 0.000000 0.000000</quat>
+            <Geom type = "box">                
+                <extents>0.00079375 0.06985 .1397</extents>
+                <diffuseColor>0.6 0.6 0.6</diffuseColor>
+                <ambientColor>0 0 0</ambientColor>
+             </Geom>
+        </Body>    
+        <!-- Fake spherical tool       -->
+        <!--Body name="tool0" type="dynamic">
             <offsetfrom>link_6</offsetfrom>
             <translation>0.055000 0.000000 0.000000</translation>
             <quat>1.000000 0.000000 0.000000 0.000000</quat>
@@ -192,7 +248,7 @@
                 <diffusecolor>1.000000 0.430000 0.000000</diffusecolor>
                 <transparency>0.000000</transparency>
             </Geom>
-        </Body>
+        </Body-->
         <Joint name="joint_0" type="slider" enable="true">
             <Body>track</Body>
             <Body>base_base</Body>
@@ -201,22 +257,13 @@
             <axis>1.000000 0.000000 0.000000</axis>
             <maxvel>1.7453000000000001</maxvel>
         </Joint>
-        <Joint name="base_dummy" type="hinge" mimic_pos="0" >
+        <Joint name="base_dummy1" type="hinge" mimic_pos="0" >
           <Body>base_base</Body>
           <Body>base_link</Body>
           <axis>0 0 1</axis>
           <anchor>0.055000 0.000000 0.000000</anchor>
           <resolution>1</resolution>
         </Joint>
-        <!--Joint name="joint_10" type="hinge" enable="true">
-            <Body>base_base</Body>
-            <Body>base_link</Body>
-            <offsetfrom>base_base</offsetfrom>
-            <anchor>0.000000 0.000000 0.0888</anchor>
-            <axis>0.000000 0.000000 0.000000</axis>
-            <maxvel>1.7453000000000001</maxvel>
-            <limitsrad>-1.134000 1.485500</limitsrad>
-        </Joint-->
         <Joint name="joint_1" type="hinge" enable="true">
             <Body>base_link</Body>
             <Body>link_1</Body>
@@ -271,13 +318,14 @@
             <maxvel>3.3161</maxvel>
             <limitsrad>-6.283000 6.283000</limitsrad>
         </Joint>
-        <Joint name="joint_6-tool0" type="hinge" enable="false">
+        <!-- Fake spherical tool joint -->
+        <!-- <Joint name="joint_6-tool0" type="hinge" enable="false">
             <Body>link_6</Body>
             <Body>tool0</Body>
             <offsetfrom>link_6</offsetfrom>
             <anchor>0.055000 0.000000 0.000000</anchor>
             <axis>1.000000 0.000000 0.000000</axis>
-        </Joint> 
+        </Joint>  -->
         <Joint name="joint_cylinder" type="hinge" enable="false">
             <Body>link_1</Body>
             <Body>link_cylinder</Body>
@@ -296,9 +344,38 @@
             <maxvel>0</maxvel>
             <limitsrad>0.000000 0.600000</limitsrad>
         </Joint>
+        <!-- Replace wrist1 and wrist2 dummy with below
         <Joint name="wrist_dummy" type="hinge" mimic_pos="0" >
           <Body>link_6</Body>
-          <Body>tool0</Body>
+          <Body>Schunck_Gripper</Body>
+          <axis>0 0 1</axis>
+          <anchor>0.055000 0.000000 0.000000</anchor>
+          <resolution>1</resolution>
+        </Joint> -->
+        <Joint name="bottom_wrist_dummy" type="hinge" mimic_pos="0" >
+          <Body>link_6</Body>
+          <Body>ATI_plate</Body>
+          <axis>0 0 1</axis>
+          <anchor>0.055000 0.000000 0.000000</anchor>
+          <resolution>1</resolution>
+        </Joint>
+        <Joint name="top_wrist_dummy" type="hinge" mimic_pos="0" >
+          <Body>ATI_plate</Body>
+          <Body>Schunck_Gripper</Body>
+          <axis>0 0 1</axis>
+          <anchor>0.055000 0.000000 0.000000</anchor>
+          <resolution>1</resolution>
+        </Joint>
+        <Joint name="handle_dummy" type="hinge" mimic_pos="0" >
+          <Body>Schunck_Gripper</Body>
+          <Body>trowel_handle</Body>
+          <axis>0 0 1</axis>
+          <anchor>0.055000 0.000000 0.000000</anchor>
+          <resolution>1</resolution>
+        </Joint>
+        <Joint name="trowel_dummy" type="hinge" mimic_pos="0" >
+          <Body>trowel_handle</Body>
+          <Body>trowel</Body>
           <axis>0 0 1</axis>
           <anchor>0.055000 0.000000 0.000000</anchor>
           <resolution>1</resolution>
@@ -307,7 +384,7 @@
 
     <Manipulator name="plaster_tool">
         <base>base_link</base>
-        <effector>tool0</effector>
+        <effector>trowel</effector>
         <!-- <Translation>2.473 0.0101 2.048</Translation> -->
     </Manipulator>
 
