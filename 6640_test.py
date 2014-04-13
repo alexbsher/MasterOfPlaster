@@ -307,11 +307,10 @@ class RoboHandler:
       return
     track = self.robot.GetDOFValues([0])
     q_new = track.tolist()
-    IPython.embed()
-    q_new = q_new.extend(sol)
+    q_new.extend(sol)
     q_old = self.robot.GetDOFValues()
 
-    return fmin(self.fminCost, q_old.tolist(), q_new, q_old.tolist(), disp=False)
+    return fmin(self.fminCost, q_new, [q_old.tolist()], disp=False)
 
   def getSolution(self, t_goal):
     sol = None
@@ -321,7 +320,7 @@ class RoboHandler:
     while sol == None:
       track = self.robot.GetDOFValues([0])
       self.robot.SetDOFValues([0], track+epsilon)
-      sol = self.moveIK(t_goal, move=False)
+      sol = self.fminIK(t_goal)
       i  = i + 1
       if i == 100:
         epsilon = -.01
