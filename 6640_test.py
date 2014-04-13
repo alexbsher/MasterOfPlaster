@@ -18,6 +18,9 @@ from dfab.mocap import extract_trajectory, datafiles
 from dfab.geometry.quaternion import to_threexform
 from dfab.rapid.joint_sequence import single_trajectory_program
 
+from scipy.optimize import fmin
+from math import sqrt
+
 curr_path = os.getcwd()
 relative_ordata = '/models'
 ordata_path_thispack = curr_path + relative_ordata
@@ -162,9 +165,9 @@ class RoboHandler:
     # Frame change is rotate about z by 90, then x by -90
     frame_change = np.dot(t_z_90, t_y_m90)
     # Return H_wt dot H_tr
-    transform[2, 3] += .451  # Ground to Robot Height Offset 
-    transform[0, 3] += .55   # X Addition
-    transform[1, 3] -= .22 # Y Offset
+    transform[2, 3] += .351  # Ground to Robot Height Offset 
+    transform[0, 3] += .35   # X Addition
+    transform[1, 3] -= 0.15 # Y Offset
     return np.dot(transform, frame_change)
 
   def writeModFile(self, times, transforms, filename='seq.mod', toolframe=False):
@@ -181,7 +184,7 @@ class RoboHandler:
     data = [[time, [0] + j_vals.tolist()] for (time, j_vals) in zip(times, joints)]
 
     # Write File
-    mod_file = single_trajectory_program(data)
+    mod_file = single_trajectory_program(data, a_unit='radian', l_unit='meter')
 
     f = open(filename, 'w')
     f.write(mod_file)
@@ -212,6 +215,118 @@ class RoboHandler:
 
     return traj_times, joint_traj
 
+  def segmentTransforms(self, trans_times, transforms):
+    '''
+    Takes a path in the form of 4x4 homogeneous transforms and corresponding times, 
+    and segments the path to the motions where the tool path is close to the plastering
+    wall.  Further filters these motions down to vertical motions, and those with more than
+    80 unique timestamps.  Retruns a tuple of times and paths.
+    @ Params : trans_times -> Timestamps corresponsding to transforms[i]
+               transforms  -> 4x4 homogeneous transforms for tool path to follow
+    @ Returns : trans2_times -> List of List of Timestamps corresponding to filtered transforms
+                trans2       -> List of List of 4x4 Homogeneuous Transforms for tool to follow
+                max_id       -> Location of longest path in trans2
+    '''
+
+    count  = 0
+    trans1 = []
+    trans1_times = []
+    trans2 = []
+    trans2_times = []
+    for i in range(0,len(transforms)):
+      if trans[i][1][3] > 2.3:
+          count = count + 1
+          trans1.append(trans[i])
+          trans1_times.append(times[i])
+    for i in range(0,len(trans1)-1):
+      k = i
+      count2 = 0
+      x = []
+      t = []
+      while trans1[k+1][2][3] > trans1[k][2][3] and k < len(trans1)- 2:
+        count2 = count2 + 1
+        x.append(trans1[k])
+        t.append(trans1_times[k])
+        k = k + 1 
+      if count2 > 80:
+        trans2.append(x)
+        trans2_times.append(t)
+
+    lengths = []
+
+    for i in range(0,len(trans2)-1):
+      lengths.append([len(trans2[i]),i])
+
+    l = np.array(lengths)
+    l_sorted = sorted(l, key=lambda j: j[0],reverse=True) 
+    max_id = l_sorted[0][1]
+
+    vertical_move = trans2[max_id]
+    vertical_move_times = trans2_times[max_id]
+
+    return (trans2_times, trans2, max_id)
+
+  def getVerticalTransforms(self, zs=.14, ze=2.6):
+    '''
+    Function takes a start and end height to move the robot arm through and returns a list of 4x4
+    homogeneous transforms (separated by 1 cm in the z direction) to move through IK.
+    '''
+    transforms = []
+    z = zs
+    t_i = numpy.array([[ 0.  ,  0.  ,  1.  ,  0.5 ],
+                       [ 1.  ,  0.  ,  0.  ,  2.32],
+                       [ 0.  ,  1.  ,  0.  ,  zs  ],
+                       [ 0.  ,  0.  ,  0.  ,  1.  ]])
+
+    while z < ze:
+      t = t_i.copy()
+      t[2][3] = z
+      transforms.append(t)
+      z = z + .01
+
+    return transforms
+
+  def fminCost(self, q_new, q_prev):
+    '''
+    Cost Function for determining Cost of a move given a new desired IK solution
+    @ Params : q_new  -> Joint values of new location
+               q_prev -> Vector of joint values before move
+    @ Returns : cost -> Euclidean Distance between start and end configuration
+    '''
+    if(q_new == None):
+      return 10000000000000000
+    diff = q_new - q_prev
+    return sqrt(sum(diff)**2)
+
+
+
+  def fminIK(self, t_goal):
+    sol = self.getSolution(t_goal)
+    if sol == None:
+      print "FMin Failed"
+      return
+    track = self.robot.GetDOFValues([0])
+    q_new = track.tolist()
+    q_new.extend(sol)
+    q_old = self.robot.GetDOFValues()
+
+    return fmin(self.fminCost, q_new, [q_old.tolist()], disp=False)
+
+  def getSolution(self, t_goal):
+    sol = None
+    epsilon = .01
+    i = 0
+    initial_track = self.robot.GetDOFValues([0])
+    while sol == None:
+      track = self.robot.GetDOFValues([0])
+      self.robot.SetDOFValues([0], track+epsilon)
+      sol = self.fminIK(t_goal)
+      i  = i + 1
+      if i == 100:
+        epsilon = -.01
+        self.robot.SetDOFValues([0], initial_track)
+
+    return sol
 
 
 if __name__ == '__main__':
@@ -231,52 +346,15 @@ if __name__ == '__main__':
 
   if args.trajectory != None:
     (trans, times) = robo.getMocapTraj(args.trajectory)
-
-  count  = 0
-  trans1 = []
-  trans1_times = []
-  trans2 = []
-  trans2_times = []
-  for i in range(0,len(trans)):
-    if trans[i][1][3] > 2.3:
-        count = count + 1
-        trans1.append(trans[i])
-        trans1_times.append(times[i])
-  for i in range(0,len(trans1)-1):
-    k = i
-    count2 = 0
-    x = []
-    t = []
-    while trans1[k+1][2][3] > trans1[k][2][3] and k < len(trans1)- 2:
-      count2 = count2 + 1
-      x.append(trans1[k])
-      t.append(trans1_times[k])
-      k = k + 1 
-    if count2 > 80:
-      trans2.append(x)
-      trans2_times.append(t)
-
-  lengths = []
-
-  for i in range(0,len(trans2)-1):
-    lengths.append([len(trans2[i]),i])
-
-  l = np.array(lengths)
-  l_sorted = sorted(l, key=lambda j: j[0],reverse=True) 
-  max_id = l_sorted[0][1]
-
-  vertical_move = trans2[max_id]
-  vertical_move_times = trans2_times[max_id]
-
+    (seg_move_times, seg_moves, max_id) = robo.segmentTransforms(times, trans)
+    raw_input('Press enter to execute the trajectory in vertical direction:')
+    robo.moveTransforms(seg_moves[max_id], toolframe=True)
 
   # Set Camera
   t = np.array([ [0, -1.0, 0, 2.25], [-1.0, 0, 0, 0], [0, 0, -1.0, 4.0], [0, 0, 0, 1.0] ])  
   robo.env.GetViewer().SetCamera(t)
 
   robo.robot.SetVisible(True)
-
-  raw_input('Press enter to execute the trajectory in vertical direction:')
-  robo.moveTransforms(vertical_move, toolframe=True)
 
   # Drop Into Shell
   import IPython
