@@ -18,6 +18,8 @@ from dfab.mocap import extract_trajectory, datafiles
 from dfab.geometry.quaternion import to_threexform
 from dfab.rapid.joint_sequence import single_trajectory_program
 
+from scipy.optimize import fmin
+
 curr_path = os.getcwd()
 relative_ordata = '/models'
 ordata_path_thispack = curr_path + relative_ordata
@@ -263,6 +265,26 @@ class RoboHandler:
 
     return (trans2_times, trans2, max_id)
 
+  def getVerticalTransforms(self, zs=.14, ze=2.6):
+    '''
+    Function takes a start and end height to move the robot arm through and returns a list of 4x4
+    homogeneous transforms (separated by 1 cm in the z direction) to move through IK.
+    '''
+    transforms = []
+    z = zs
+    t_i = numpy.array([[ 0.  ,  0.  ,  1.  ,  0.5 ],
+                       [ 1.  ,  0.  ,  0.  ,  2.32],
+                       [ 0.  ,  1.  ,  0.  ,  zs  ],
+                       [ 0.  ,  0.  ,  0.  ,  1.  ]])
+
+    while z < ze:
+      t = t_i.copy()
+      t[2][3] = z
+      transforms.append(t)
+      z = z + .01
+
+    return transforms
+
 
 if __name__ == '__main__':
 
@@ -284,8 +306,6 @@ if __name__ == '__main__':
     (seg_move_times, seg_moves, max_id) = robo.segmentTransforms(times, trans)
     raw_input('Press enter to execute the trajectory in vertical direction:')
     robo.moveTransforms(seg_moves[max_id], toolframe=True)
-
-
 
   # Set Camera
   t = np.array([ [0, -1.0, 0, 2.25], [-1.0, 0, 0, 0], [0, 0, -1.0, 4.0], [0, 0, 0, 1.0] ])  
