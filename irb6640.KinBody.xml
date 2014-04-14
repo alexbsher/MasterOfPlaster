@@ -256,6 +256,7 @@
             <anchor>0.000000 0.000000 0.311</anchor>
             <axis>1.000000 0.000000 0.000000</axis>
             <maxvel>1.7453000000000001</maxvel>
+            <limits>0 5.75</limits>
         </Joint>
         <Joint name="base_dummy1" type="hinge" mimic_pos="0" >
           <Body>base_base</Body>

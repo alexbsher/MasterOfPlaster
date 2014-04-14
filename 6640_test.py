@@ -65,7 +65,7 @@ class RoboHandler:
     data = extract_trajectory.load_csv_data(filename)
     return extract_trajectory.extract_trajectory(data, body=body)
 
-  def getMocapTraj(self, filename ):
+  def getMocapTraj(self, filename):
     '''
     Looks up a csv filename for mocap trajectory and if successful, returns times, 
     and 4x4 transforms in world frame.
@@ -122,7 +122,6 @@ class RoboHandler:
     end effector, where this list is a list of 4x4 transforms in the world frame 
     and i=1:n where n is the number of points.
     '''
-
     for pos, q in traj:
       # If Sim, then OR works in m, not mm
       if self.mode == 'sim':
@@ -170,7 +169,7 @@ class RoboHandler:
     transform[1, 3] -= 0.15 # Y Offset
     return np.dot(transform, frame_change)
 
-  def writeModFile(self, times, transforms, filename='seq.mod', toolframe=False):
+  def writeModFile(self, times, transforms, filename='seq.mod', toolframe=False, ik='fmin'):
     '''
     Writes a mod file for the trajectory described by t (the list of times) and
     transforms (the list of 4x4 homogeneous transforms the robots end effector)
@@ -178,7 +177,7 @@ class RoboHandler:
     are in the tools frame (toolframe=True) or Robots frame (toolframe=False).
     '''
     # Get pruned times and joints from function
-    times, joints = self.generateJointTrajectoryFromIK(times, transforms, toolframe=toolframe)
+    times, joints = self.generateJointTrajectoryFromIK(times, transforms, toolframe=toolframe, ik=ik)
 
     # Format data
     data = [[time, [0] + j_vals.tolist()] for (time, j_vals) in zip(times, joints)]
@@ -190,13 +189,18 @@ class RoboHandler:
     f.write(mod_file)
     f.close()
 
-  def generateJointTrajectoryFromIK(self, times, transforms, toolframe=False):
+  def generateJointTrajectoryFromIK(self, times, transforms, toolframe=False, ik='fmin'):
     '''
     Generates a Joint Trajectory from a list of 4x4 homogeneous transforms the robots'
     end effector is supposed to go through and the list of times it is supposed
     to be there.  The toolframe parameter indicates whether the Transformations
     are in the tools frame (toolframe=True) or Robots frame (toolframe=False).
     '''
+
+    if ik is 'fmin':
+      ikfun = self.fminIK
+    else:
+      ikfun = self.moveIK
 
     # Initialize returned lists
     joint_traj = []
@@ -207,7 +211,7 @@ class RoboHandler:
         # Transform tool frame to robot frame
         t = self.toolToRobotTransform(t)
       # Get Solution
-      sol = self.moveIK(t, move=False)
+      sol = ikfun(t)
       # If solution exists, append it to the list
       if sol != None:
         joint_traj.append(sol)
@@ -274,7 +278,7 @@ class RoboHandler:
     transforms = []
     z = zs
     t_i = numpy.array([[ 0.  ,  0.  ,  1.  ,  0.5 ],
-                       [ 1.  ,  0.  ,  0.  ,  2.32],
+                       [ 1.  ,  0.  ,  0.  ,  2.47],
                        [ 0.  ,  1.  ,  0.  ,  zs  ],
                        [ 0.  ,  0.  ,  0.  ,  1.  ]])
 
@@ -286,47 +290,65 @@ class RoboHandler:
 
     return transforms
 
-  def fminCost(self, q_new, q_prev):
+  def getHorizontalTransforms(self, xs=.14, xe=2.6):
+    '''
+    Function takes a start and end height to move the robot arm through and returns a list of 4x4
+    homogeneous transforms (separated by 1 cm in the z direction) to move through IK.
+    '''
+    transforms = []
+    robo_tf = self.manip.GetTransform()
+    robo_z = robo_tf[2][3]
+    x = xs
+    t_i = numpy.array([[ 0.  ,  0.  ,  1.  ,  xs    ],
+                       [ 1.  ,  0.  ,  0.  ,  2.47  ],
+                       [ 0.  ,  1.  ,  0.  ,  robo_z],
+                       [ 0.  ,  0.  ,  0.  ,  1.    ]])
+
+    while x < xe:
+      t = t_i.copy()
+      t[0][3] = x
+      transforms.append(t)
+      x = x + .01
+
+    return transforms
+
+  def fminCost(self, q_guess, q_prev, t_goal):
     '''
     Cost Function for determining Cost of a move given a new desired IK solution
     @ Params : q_new  -> Joint values of new location
                q_prev -> Vector of joint values before move
     @ Returns : cost -> Euclidean Distance between start and end configuration
     '''
-    if(q_new == None):
-      return 10000000000000000
-    diff = q_new - q_prev
-    return sqrt(sum(diff)**2)
+    alpha = 5
+    beta = .5
+    ret = self.robot.GetDOFValues()
+    with self.env:
+      self.robot.SetDOFValues(q_guess)
+      t_guess = self.manip.GetTransform()
+      diff_car = t_goal - t_guess
+      diff_js = q_guess - q_prev
+      self.robot.SetDOFValues(ret)
+
+    return alpha*sqrt(sum(sum(abs(diff_car))**2)) + beta*sqrt(sum(diff_js**2))
 
 
 
   def fminIK(self, t_goal):
-    sol = self.getSolution(t_goal)
-    if sol == None:
-      print "FMin Failed"
-      return
-    track = self.robot.GetDOFValues([0])
-    q_new = track.tolist()
-    q_new.extend(sol)
+
     q_old = self.robot.GetDOFValues()
 
-    return fmin(self.fminCost, q_new, [q_old.tolist()], disp=False)
+    return fmin(self.fminCost, q_old.tolist(), [q_old.tolist(), t_goal], disp=False)
 
-  def getSolution(self, t_goal):
-    sol = None
-    epsilon = .01
-    i = 0
-    initial_track = self.robot.GetDOFValues([0])
-    while sol == None:
-      track = self.robot.GetDOFValues([0])
-      self.robot.SetDOFValues([0], track+epsilon)
-      sol = self.fminIK(t_goal)
-      i  = i + 1
-      if i == 100:
-        epsilon = -.01
-        self.robot.SetDOFValues([0], initial_track)
 
-    return sol
+  def fminTrajectory(self, transforms):
+    traj = []
+    for t in transforms:
+      s = self.fminIK(t)
+      traj.append(s)
+      self.robot.SetDOFValues(s)
+      time.sleep(.1)
+
+    return traj
 
 
 if __name__ == '__main__':
@@ -341,6 +363,8 @@ if __name__ == '__main__':
 
   robo = RoboHandler(args.mode)
 
+  robo.robot.SetVisible(True)
+
   if args.csv != None:
     data = robo.getMocapData(args.csv, body=args.body)
 
@@ -353,8 +377,6 @@ if __name__ == '__main__':
   # Set Camera
   t = np.array([ [0, -1.0, 0, 2.25], [-1.0, 0, 0, 0], [0, 0, -1.0, 4.0], [0, 0, 0, 1.0] ])  
   robo.env.GetViewer().SetCamera(t)
-
-  robo.robot.SetVisible(True)
 
   # Drop Into Shell
   import IPython
