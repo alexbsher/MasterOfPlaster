@@ -19,6 +19,7 @@ from dfab.geometry.quaternion import to_threexform
 from dfab.rapid.joint_sequence import single_trajectory_program
 
 from scipy.optimize import fmin
+from math import sqrt
 
 curr_path = os.getcwd()
 relative_ordata = '/models'
@@ -284,6 +285,49 @@ class RoboHandler:
       z = z + .01
 
     return transforms
+
+  def fminCost(self, q_new, q_prev):
+    '''
+    Cost Function for determining Cost of a move given a new desired IK solution
+    @ Params : q_new  -> Joint values of new location
+               q_prev -> Vector of joint values before move
+    @ Returns : cost -> Euclidean Distance between start and end configuration
+    '''
+    if(q_new == None):
+      return 10000000000000000
+    diff = q_new - q_prev
+    return sqrt(sum(diff)**2)
+
+
+
+  def fminIK(self, t_goal):
+    sol = self.getSolution(t_goal)
+    if sol == None:
+      print "FMin Failed"
+      return
+    track = self.robot.GetDOFValues([0])
+    q_new = track.tolist()
+    IPython.embed()
+    q_new = q_new.extend(sol)
+    q_old = self.robot.GetDOFValues()
+
+    return fmin(self.fminCost, q_old.tolist(), q_new, q_old.tolist(), disp=False)
+
+  def getSolution(self, t_goal):
+    sol = None
+    epsilon = .01
+    i = 0
+    initial_track = self.robot.GetDOFValues([0])
+    while sol == None:
+      track = self.robot.GetDOFValues([0])
+      self.robot.SetDOFValues([0], track+epsilon)
+      sol = self.moveIK(t_goal, move=False)
+      i  = i + 1
+      if i == 100:
+        epsilon = -.01
+        self.robot.SetDOFValues([0], initial_track)
+
+    return sol
 
 
 if __name__ == '__main__':
