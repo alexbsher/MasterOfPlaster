@@ -19,7 +19,7 @@ from dfab.geometry.quaternion import to_threexform
 from dfab.rapid.joint_sequence import single_trajectory_program
 
 from scipy.optimize import fmin
-from math import sqrt
+from math import sqrt, cos, sin, radians
 
 curr_path = os.getcwd()
 relative_ordata = '/models'
@@ -42,6 +42,7 @@ class RoboHandler:
     self.env.GetViewer().SetName('Tutorial Viewer')
     self.env.Load('6640_test.env.xml')
     self.robot = self.env.GetRobots()[0]
+    self.wall = self.env.GetKinBody('plaster_wall')
 
     # Init IK Solutions
     self.manip = self.robot.GetActiveManipulator()
@@ -180,8 +181,10 @@ class RoboHandler:
     times, joints = self.generateJointTrajectoryFromIK(times, transforms, toolframe=toolframe, ik=ik)
 
     # Format data
-    data = [[time, [0] + j_vals.tolist()] for (time, j_vals) in zip(times, joints)]
-
+    if ik is 'ikfast':
+      data = [[time, [0] + j_vals.tolist()] for (time, j_vals) in zip(times, joints)]
+    elif ik is 'fmin':
+      data = [[time, j_vals.tolist()] for (time, j_vals) in zip(times, joints)]
     # Write File
     mod_file = single_trajectory_program(data, a_unit='radian', l_unit='meter')
 
@@ -270,39 +273,42 @@ class RoboHandler:
 
     return (trans2_times, trans2, max_id)
 
-  def getVerticalTransforms(self, zs=.14, ze=2.6):
+  def getVerticalTransforms(self, zs=.14, ze=2.6, y=2.35, x=.65, theta=-25):
     '''
     Function takes a start and end height to move the robot arm through and returns a list of 4x4
     homogeneous transforms (separated by 1 cm in the z direction) to move through IK.
     '''
     transforms = []
     z = zs
-    t_i = numpy.array([[ 0.  ,  0.  ,  1.  ,  0.5 ],
-                       [ 1.  ,  0.  ,  0.  ,  2.47],
+    t_i = numpy.array([[ 0.  ,  0.  ,  1.  ,  x   ],
+                       [ 1.  ,  0.  ,  0.  ,  y   ],
                        [ 0.  ,  1.  ,  0.  ,  zs  ],
                        [ 0.  ,  0.  ,  0.  ,  1.  ]])
+    r_x_25 = numpy.array([[cos(radians(theta)) , sin(radians(theta)) , 0 , 0],
+                          [-sin(radians(theta) , cos(radians(theta)) , 0 , 0],
+                          [0                   , 0                   , 1 , 0],
+                          [0                   , 0                   , 0 , 1]])
+    t_r = numpy.dot(t_i, r_x_25)
 
     while z < ze:
-      t = t_i.copy()
+      t = t_r.copy()
       t[2][3] = z
       transforms.append(t)
       z = z + .01
 
     return transforms
 
-  def getHorizontalTransforms(self, xs=.14, xe=2.6):
+  def getHorizontalTransforms(self, xs=.14, xe=2.6, y=2.35, z=1.5):
     '''
     Function takes a start and end height to move the robot arm through and returns a list of 4x4
     homogeneous transforms (separated by 1 cm in the z direction) to move through IK.
     '''
     transforms = []
-    robo_tf = self.manip.GetTransform()
-    robo_z = robo_tf[2][3]
     x = xs
-    t_i = numpy.array([[ 0.  ,  0.  ,  1.  ,  xs    ],
-                       [ 1.  ,  0.  ,  0.  ,  2.47  ],
-                       [ 0.  ,  1.  ,  0.  ,  robo_z],
-                       [ 0.  ,  0.  ,  0.  ,  1.    ]])
+    t_i = numpy.array([[ 0.  ,  0.  ,  1.  ,  xs  ],
+                       [ 1.  ,  0.  ,  0.  ,  y   ],
+                       [ 0.  ,  1.  ,  0.  ,  z   ],
+                       [ 0.  ,  0.  ,  0.  ,  1.  ]])
 
     while x < xe:
       t = t_i.copy()
@@ -319,36 +325,74 @@ class RoboHandler:
                q_prev -> Vector of joint values before move
     @ Returns : cost -> Euclidean Distance between start and end configuration
     '''
-    alpha = 5
-    beta = .5
+    alpha = 10
+    beta = 5
+    gamma = 0.5
     ret = self.robot.GetDOFValues()
     with self.env:
       self.robot.SetDOFValues(q_guess)
+      # if(self.env.CheckCollision(self.robot, self.wall)):
+      #   return 10000000000
       t_guess = self.manip.GetTransform()
       diff_car = t_goal - t_guess
-      diff_js = q_guess - q_prev
+      space_vec = abs(diff_car[0:3, 3])
+      aa_guess = axisAngleFromRotationMatrix(t_guess[:3, :3])
+      aa_goal =  axisAngleFromRotationMatrix(t_goal[:3, :3])
+      rot_vec = abs(aa_guess - aa_goal)
+      diff_js = abs(q_guess - q_prev)
       self.robot.SetDOFValues(ret)
 
-    return alpha*sqrt(sum(sum(abs(diff_car))**2)) + beta*sqrt(sum(diff_js**2))
+    return alpha*sum(space_vec**2) + beta*sum(rot_vec**2) + gamma*sum(diff_js[1:]**2)
 
 
 
   def fminIK(self, t_goal):
 
     q_old = self.robot.GetDOFValues()
-
-    return fmin(self.fminCost, q_old.tolist(), [q_old.tolist(), t_goal], disp=False)
-
+    sol = fmin(self.fminCost, q_old.tolist(), [q_old.tolist(), t_goal], disp=False)
+    print(self.fminCost(sol, q_old, t_goal))
+    return sol
 
   def fminTrajectory(self, transforms):
     traj = []
+    c_points = []
+    c_flag = False
     for t in transforms:
       s = self.fminIK(t)
       traj.append(s)
       self.robot.SetDOFValues(s)
+      if self.env.CheckCollision(self.robot):
+        c_flag = True
+        c_points.append(t.copy())
       time.sleep(.1)
 
+    if c_flag:
+      print("There was a Collision! Happened @")
+      print(c_points)
     return traj
+
+  def fminTrackIKArm(self, times, transforms):
+    final_traj = []
+    final_times = []
+    traj = self.fminTrajectory(transforms)
+    for i in xrange(len(times)):
+      self.robot.SetDOFValues([traj[i][0]], [0])
+      arm_sol = self.moveIK(transforms[i])
+      if arm_sol != None:
+        traj_now = [traj[i][0]]
+        traj_now.extend(arm_sol.tolist())
+        final_traj.append(traj_now)
+        final_times.append(times[i])
+
+    return final_times, final_traj
+
+  def testTrajectory(self, transforms, joint_trajectory):
+
+    for i in xrange(len(joint_trajectory)):
+      self.robot.SetDOFValues(joint_trajectory[i])
+      t_now = self.manip.GetTransform()
+      diff = transforms[i] - t_now
+      print diff
 
 
 if __name__ == '__main__':
