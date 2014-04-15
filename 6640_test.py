@@ -71,12 +71,14 @@ class RoboHandler:
     Looks up a csv filename for mocap trajectory and if successful, returns times, 
     and 4x4 transforms in world frame.
     @ Params -> filename : CSV File with Mocap Data
-    @ Returns -> paths : list of 4x4 transforms found in traj file
-                 times : vector of times corresponding to readings
+    @ Returns -> transforms : list of 4x4 transforms found in traj file
+                 times      : vector of times corresponding to readings
                  
     '''
+    # Use dfab mocap system to real file
     paths, times = datafiles.read_frame_trajectory_file(filename)
     transforms = [np.identity(4) for i in paths]
+    # Overwrite identity with the proper frames
     for i in xrange(0, len(transforms)):
       self.write_frame_record_to_transform(paths[i], transforms[i])
 
@@ -92,11 +94,6 @@ class RoboHandler:
 
     # scale the millimeters from the file to meters for the graphics
     transform[0:3, 3] *= 0.001
-    # Swap X and Y, as they're flipped between data and sim bot
-    #temp = transform[1, 3] 
-    #transform[1, 3] = transform[0, 3] 
-    #transform[0, 3] = temp
-
     return
 
   
@@ -105,6 +102,9 @@ class RoboHandler:
     Attempts to move the robots end effector to a given transform denoted by
     Tgoal.  Returns None if no solution is found or Returns the solution if
     there is one.
+    @ Params : Tgoal -> 4x4 homogeneous transform for the manipulator to go to
+               move  -> Boolean dictating whether to physically move the robot to the point
+    @ Returns : sol  -> 6 Dimensional Arm Joints if solution exists, else sol = None
     '''
     # Get a solution from IK Solver
     sol = self.manip.FindIKSolution(Tgoal, IkFilterOptions.CheckEnvCollisions)
@@ -119,9 +119,9 @@ class RoboHandler:
 
   def moveTrajectory(self, traj):
     '''
-    Takes a trajectory, which is [for now] just a 2xn list of points to put the 
-    end effector, where this list is a list of 4x4 transforms in the world frame 
-    and i=1:n where n is the number of points.
+    Takes a trajectory from a mocap file, which is a list of tuples 
+    of positions and quaternions and moves the robot through the data.
+    @ Params : traj -> list of (position, quaternion) tuples
     '''
     for pos, q in traj:
       # If Sim, then OR works in m, not mm
@@ -136,6 +136,9 @@ class RoboHandler:
   def moveTransforms(self, transforms, toolframe=False):
     '''
     Takes a list of transforms and moves the robot through the trajectory.
+    @ Params : transforms -> list of 4x4 homogeneous transforms
+               toolframe  -> Dictates whether the 4x4 transforms are in the 
+                             mocap tools frame
     '''
     # Iterate over all transforms
     for t in transforms:
@@ -148,7 +151,9 @@ class RoboHandler:
 
   def toolToRobotTransform(self, transform):
     '''
-    Transforms from the tool frame to the robot frame
+    Transforms from the tool frame to the robot frame.
+    @ Param  : transform -> transform to change
+    @ Return : transform adjusted to world frame
     '''
     # Rotate about z by 90 degrees
     t_z_90 = numpy.array([[0, -1, 0, 0], 
@@ -172,10 +177,16 @@ class RoboHandler:
 
   def writeModFile(self, times, transforms, filename='seq.mod', toolframe=False, ik='fmin'):
     '''
-    Writes a mod file for the trajectory described by t (the list of times) and
+    Writes a mod file for the trajectory described by times (the list of times) and
     transforms (the list of 4x4 homogeneous transforms the robots end effector)
     goes through.  The toolframe parameter indicates whether the Transformations
     are in the tools frame (toolframe=True) or Robots frame (toolframe=False).
+    @ Params : times      -> list of times where times[i] is the time the robot should be at 
+                             transforms[i]
+               transforms -> list of transforms for robot's end effector to go through
+               filename   -> name of mod file to write
+               toolframe  -> Dictates whether the transforms are in the mocap's tool frame or not
+               ik         -> Determines what ik to use, options are 'fmin', 'ikfast', and 'fminTrackIKArm'
     '''
     # Get pruned times and joints from function
     times, joints = self.generateJointTrajectoryFromIK(times, transforms, toolframe=toolframe, ik=ik)
@@ -198,12 +209,19 @@ class RoboHandler:
     end effector is supposed to go through and the list of times it is supposed
     to be there.  The toolframe parameter indicates whether the Transformations
     are in the tools frame (toolframe=True) or Robots frame (toolframe=False).
+    @ Params : times      -> list of times where times[i] is the time the robot should be at 
+                             transforms[i]
+               transforms -> list of transforms for robot's end effector to go through
+               toolframe  -> Dictates whether the transforms are in the mocap's tool frame or not
+               ik         -> Determines what ik to use, options are 'fmin', 'ikfast', and 'fminTrackIKArm'
     '''
 
     if ik is 'fmin':
       ikfun = self.fminIK
-    else:
+    elif ik is 'ikfast':
       ikfun = self.moveIK
+    elif ik is 'fminTrackIKArm'
+      ikfun = self.fminTrackIKArm
 
     # Initialize returned lists
     joint_traj = []
@@ -277,22 +295,32 @@ class RoboHandler:
     '''
     Function takes a start and end height to move the robot arm through and returns a list of 4x4
     homogeneous transforms (separated by 1 cm in the z direction) to move through IK.
+    @ Params : zs    -> Height to start the transforms aka z corresponding to transforms[0]
+               ze    -> Height to end the transforms aka z corresponding to transforms[-1]
+               y     -> Y position (distance towards wall) in transforms
+               x     -> X position (distance along track) in transforms
+               theta -> Tool Roll angle (rolled about trowel faces longest side)
+    @ Return : transforms -> list of 4x4 homogeneous transforms corresponding to parameters
     '''
     transforms = []
     z = zs
+    # Start manipulator pointing at the wall at start height
     t_i = numpy.array([[ 0.  ,  0.  ,  1.  ,  x   ],
                        [ 1.  ,  0.  ,  0.  ,  y   ],
                        [ 0.  ,  1.  ,  0.  ,  zs  ],
                        [ 0.  ,  0.  ,  0.  ,  1.  ]])
+    # Transform matrix to roll tool by theta degrees
     r_x_25 = numpy.array([[cos(radians(theta)) , sin(radians(theta)) , 0 , 0],
                           [-sin(radians(theta) , cos(radians(theta)) , 0 , 0],
                           [0                   , 0                   , 1 , 0],
                           [0                   , 0                   , 0 , 1]])
+    # Initial rooled tool transform
     t_r = numpy.dot(t_i, r_x_25)
-
     while z < ze:
       t = t_r.copy()
+      # Overwrite height
       t[2][3] = z
+      # Append to list and increment
       transforms.append(t)
       z = z + .01
 
@@ -302,6 +330,12 @@ class RoboHandler:
     '''
     Function takes a start and end height to move the robot arm through and returns a list of 4x4
     homogeneous transforms (separated by 1 cm in the z direction) to move through IK.
+    @ Params : xs    -> X Position to start the transforms aka z corresponding to transforms[0]
+               xe    -> X Position to end the transforms aka z corresponding to transforms[-1]
+               y     -> Y position (distance towards wall) in transforms
+               z     -> Z position (Height above floor) in transforms
+               theta -> Tool Roll angle (rolled about trowel faces longest side)
+    @ Return : transforms -> list of 4x4 homogeneous transforms corresponding to parameters
     '''
     transforms = []
     x = xs
@@ -325,21 +359,27 @@ class RoboHandler:
                q_prev -> Vector of joint values before move
     @ Returns : cost -> Euclidean Distance between start and end configuration
     '''
-    alpha = 10
-    beta = 5
-    gamma = 0.5
+    alpha = 10   # Parameter for penalizing cartesian distance between guess and goal
+    beta = 5     # Parameter for penalizing rotation distance between guess and goal
+    gamma = 0.5  # Parameter for penalizing joint space distance between guess and goal
+
+    # Transform to return the robot to
     ret = self.robot.GetDOFValues()
+    # Lock environment
     with self.env:
+      # Put robot at the guess and calculate transform
       self.robot.SetDOFValues(q_guess)
-      # if(self.env.CheckCollision(self.robot, self.wall)):
-      #   return 10000000000
       t_guess = self.manip.GetTransform()
+      # Take the difference and calculate cartesian difference between guess and goal
       diff_car = t_goal - t_guess
       space_vec = abs(diff_car[0:3, 3])
+      # Calculate rotational differences from axis angle representation
       aa_guess = axisAngleFromRotationMatrix(t_guess[:3, :3])
       aa_goal =  axisAngleFromRotationMatrix(t_goal[:3, :3])
       rot_vec = abs(aa_guess - aa_goal)
+      # Calculate Joint Space Distance
       diff_js = abs(q_guess - q_prev)
+      # Put robot back in initial configuration
       self.robot.SetDOFValues(ret)
 
     return alpha*sum(space_vec**2) + beta*sum(rot_vec**2) + gamma*sum(diff_js[1:]**2)
@@ -347,31 +387,62 @@ class RoboHandler:
 
 
   def fminIK(self, t_goal):
-
+    '''
+    Uses fmin optimization to calculate an IK solution for all 7 Degrees of freedom of the robot.
+    @ Param  : t_goal -> Target 4x4 Homoegeneous Transform for robot manipulator to go to.
+    @ Return : sol    -> 7D Vector of Joint Values corresponding to minimized error in 
+                         fminCost and the goal pose.
+    '''
+    # Get Current Configuration
     q_old = self.robot.GetDOFValues()
+    # Compute optimized solution
     sol = fmin(self.fminCost, q_old.tolist(), [q_old.tolist(), t_goal], disp=False)
+    # Print cost of the solution
     print(self.fminCost(sol, q_old, t_goal))
     return sol
 
   def fminTrajectory(self, transforms):
+    '''
+    Takes a list of transforms and returns the joint trajectory calculated by fmin that 
+    minimizes the error at each transform or none if the trajectory causes a collision.
+    @ Param  : transforms -> list of 4x4 homogeneous transforms for manipulator frame.  
+    @ Return : traj       -> list of 7D joint values corresponding to transforms or None
+                             if solution causes a collision.
+    '''
+    # Initialize Variables
     traj = []
     c_points = []
     c_flag = False
     for t in transforms:
+      # Get fmin IK Solution
       s = self.fminIK(t)
+      # Put in Trajectory
       traj.append(s)
+      # Apply to robot
       self.robot.SetDOFValues(s)
+      # Check collisions
       if self.env.CheckCollision(self.robot):
         c_flag = True
         c_points.append(t.copy())
       time.sleep(.1)
 
+    # If there was a collision, let user know where and don't return trajectory
     if c_flag:
       print("There was a Collision! Happened @")
       print(c_points)
+      return None
     return traj
 
   def fminTrackIKArm(self, times, transforms):
+    '''
+    Uses fmin to get a 7D IK Solution for the robot.  Then uses ikfast to
+    overwrite the 6 Joints in the robots arm generated by fmin to increase
+    precision of trajectory.
+    @ Params  : times       -> List of times corresponding to transforms[i]
+                transforms  -> List of transforms for manipulator
+    @ Returns : final_times -> Pruned list of times
+                final_traj  -> Final Joint Space Trajectory
+    '''
     final_traj = []
     final_times = []
     traj = self.fminTrajectory(transforms)
@@ -387,6 +458,11 @@ class RoboHandler:
     return final_times, final_traj
 
   def testTrajectory(self, transforms, joint_trajectory):
+    '''
+    Takes a list of transforms and a joint trajectory and shows the differences
+    between the desired transform and where the robots manipulator is.  Used
+    for evaluating trajectories fmin creates.
+    '''
 
     for i in xrange(len(joint_trajectory)):
       self.robot.SetDOFValues(joint_trajectory[i])
@@ -398,7 +474,6 @@ class RoboHandler:
 if __name__ == '__main__':
 
   parser = ArgumentParser( description = """Python Script for Planning or Simulating IRB 6640 with an OpenRAVE Environment.""")
-  parser.add_argument('-m', '--mode', default='sim', help='Mode For Script to Run in.  Options are sim and real (default is sim)')
   parser.add_argument('-t', '--trajectory', help='Name of Trajectory File to read as input.')
   parser.add_argument('-c', '--csv', help='Name of Mocap CSV File captured with 6 point trowel to load as data')
   parser.add_argument('-b', '--body', default='6 Point Trowel', help='Name of Body in Mocap CSV File captured to look for (default is 6 Point Trowel')
