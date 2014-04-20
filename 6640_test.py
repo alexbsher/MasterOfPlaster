@@ -36,7 +36,7 @@ if ordata_path_thispack not in openrave_data_paths:
 
 
 class RoboHandler:
-  def __init__(self, mode):
+  def __init__(self):
     self.env = Environment()
     self.env.SetViewer('qtcoin')
     self.env.GetViewer().SetName('Tutorial Viewer')
@@ -49,9 +49,7 @@ class RoboHandler:
     ikmodel = databases.inversekinematics.InverseKinematicsModel(self.robot, iktype=IkParameterizationType.Transform6D)
     if not ikmodel.load():
       ikmodel.autogenerate()
-
-    # Storage of real/sim mode
-    self.mode = mode
+      
     
   def getMocapData(self, filename, body='6 Point Trowel', subsample=12):
     '''
@@ -220,7 +218,7 @@ class RoboHandler:
       ikfun = self.fminIK
     elif ik is 'ikfast':
       ikfun = self.moveIK
-    elif ik is 'fminTrackIKArm'
+    elif ik is 'fminTrackIKArm':
       ikfun = self.fminTrackIKArm
 
     # Initialize returned lists
@@ -310,10 +308,10 @@ class RoboHandler:
                        [ 0.  ,  1.  ,  0.  ,  zs  ],
                        [ 0.  ,  0.  ,  0.  ,  1.  ]])
     # Transform matrix to roll tool by theta degrees
-    r_x_25 = numpy.array([[cos(radians(theta)) , sin(radians(theta)) , 0 , 0],
-                          [-sin(radians(theta) , cos(radians(theta)) , 0 , 0],
-                          [0                   , 0                   , 1 , 0],
-                          [0                   , 0                   , 0 , 1]])
+    r_x_25 = numpy.array([[cos(radians(theta))  , sin(radians(theta)) , 0 , 0],
+                          [-sin(radians(theta)) , cos(radians(theta)) , 0 , 0],
+                          [0                    , 0                   , 1 , 0],
+                          [0                    , 0                   , 0 , 1]])
     # Initial rooled tool transform
     t_r = numpy.dot(t_i, r_x_25)
     while z < ze:
@@ -480,7 +478,7 @@ if __name__ == '__main__':
 
   args = parser.parse_args()
 
-  robo = RoboHandler(args.mode)
+  robo = RoboHandler()
 
   robo.robot.SetVisible(True)
 

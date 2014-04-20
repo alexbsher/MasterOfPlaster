@@ -184,7 +184,7 @@
         <Body name="ATI_plate" type="dynamic">
             <offsetfrom>link_6</offsetfrom>            
             <translation>0.10815 0.000000 0.000000</translation>
-            <quat>1.000000 0.000000 0.000000 0.000000</quat>
+            <quat>0.98480775 0.17364818 0 0</quat>
             <Geom render="true" type="cylinder">
                 <rotationaxis>0 0 1 90</rotationaxis>
                 <radius>0.1524</radius>
