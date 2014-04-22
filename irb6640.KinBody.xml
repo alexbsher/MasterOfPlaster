@@ -57,7 +57,7 @@
         </Body>
         <Body name="link_2" type="dynamic">
             <offsetfrom>link_1</offsetfrom>
-            <translation>0.322000 0.030000 0.551000</translation>
+            <translation>0.322000 0.030000 0.850000</translation>
             <quat>1.000000 0.000000 0.000000 0.000000</quat>
             <Geom render="false" type="trimesh">
                 <Data>visual/LINK_2.stl</Data>
@@ -111,7 +111,7 @@
         </Body>
         <Body name="link_5" type="dynamic">
             <offsetfrom>link_4</offsetfrom>
-            <translation>1.670000 0.000000 0.000000</translation>
+            <translation>1.370000 0.000000 0.000000</translation>
             <quat>1.000000 0.000000 0.000000 0.000000</quat>
             <Geom render="false" type="trimesh">
                 <Data>visual/LINK_5.stl</Data>
@@ -184,7 +184,7 @@
         <Body name="ATI_plate" type="dynamic">
             <offsetfrom>link_6</offsetfrom>            
             <translation>0.10815 0.000000 0.000000</translation>
-            <quat>0.98480775 0.17364818 0 0</quat>
+            <quat>0.97029573 0.2419219 0 0</quat>
             <Geom render="true" type="cylinder">
                 <rotationaxis>0 0 1 90</rotationaxis>
                 <radius>0.1524</radius>
