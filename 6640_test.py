@@ -518,7 +518,7 @@ class RoboHandler:
     load_data = [[t, j] for (t, j) in zip([5], [load_q])]
     mod_file = single_trajectory_program(load_data, a_unit='radian', l_unit='meter')
     
-    f=open('load1.mod', 'w')
+    f=open('load_t1.mod', 'w')
     f.write(mod_file)
     f.close()
 
@@ -530,13 +530,13 @@ class RoboHandler:
 
     mod_file = single_trajectory_program(plaster_data, a_unit='radian', l_unit='meter')
 
-    f = open('apply1.mod', 'w')
+    f = open('apply_t1.mod', 'w')
     f.write(mod_file)
     f.close()
 
   def getNextPlasterFiles(self, n, x_offset, load_file, move_file):
 
-    new_load_file = 'load'+str(n)+'.mod'
+    new_load_file = 'load_t'+str(n)+'.mod'
     l_file = open(load_file, 'r')
     fn = open(new_load_file, 'w')
     lc = 1
@@ -544,7 +544,8 @@ class RoboHandler:
       # If Line is Constant Definition
       if line.split()[0] in 'CONST':
         track = float(line.split()[-1].split(',')[0])
-        track = track + x_offset
+        x_new = x_offset * 1000
+        track = track + (x_new)  # convert from m given to mm
         change_l = line.split()
         change_l[-1]  = change_l[-1].split(',')
         change_l[-1][0] = str(track)
@@ -559,7 +560,7 @@ class RoboHandler:
     l_file.close()
     fn.close()
 
-    new_move_file = 'apply'+str(n)+'.mod'
+    new_move_file = 'apply_t'+str(n)+'.mod'
     f2 = open(move_file, 'r')
     f2n = open(new_move_file, 'w')
 
@@ -567,7 +568,8 @@ class RoboHandler:
       # If Line is Constant Definition
       if line.split()[0] in 'CONST':
         track = float(line.split()[-1].split(',')[0])
-        track = track + x_offset
+        x_new = x_offset * 1000
+        track = track + x_new
         change_l = line.split()
         change_l[-1]  = change_l[-1].split(',')
         change_l[-1][0] = str(track)
@@ -584,12 +586,60 @@ class RoboHandler:
 
   def getSmoothPlasterMotion(self, xs, xe, ys, zs, ze, z_offset):
     z_vec = numpy.arange(zs, ze, step=z_offset)
+    print z_vec
+    track_i = [self.robot.GetDOFValues()[0]]
     for z in z_vec:
+      j_traj = []
+      j_times = []
       tf = self.getHorizontalTransforms(xs=xs, xe=xe, y=ys, z=z)
       times = numpy.linspace(0, 10, num=len(tf))
-      out_file = 'smoothing_z' + str(z) + '.mod'
-      self.writeModFile(times, tf, filename=out_file, ik='ikfast')
+      self.robot.SetDOFValues(track_i, [0])
+      track = [self.robot.GetDOFValues()[0]]
+      for ti, tr in zip(times, tf):
+        self.robot.SetDOFValues([track[0] + .01], [0])
+        arm_q = self.moveIK(tr)
+        track = [self.robot.GetDOFValues()[0]]
+        if arm_q != None:
+          q = []
+          q.extend(track)
+          q.extend(arm_q)
+          j_traj.append(q)
+          j_times.append(ti)
+        else:
+          print 'Gap!'
 
+      out_file = 'smoothing_z' + str(z) + '.mod'
+
+      smooth_data = [[t, j] for (t, j) in zip(j_times, j_traj)]
+      mod_file = single_trajectory_program(smooth_data, a_unit='radian', l_unit='meter')
+
+      f = open(out_file, 'w')
+      f.write(mod_file)
+      f.close()
+
+      #self.writeModFile(times, tf, filename=out_file)#, ik='ikfast')
+
+  def getPlasteringDemoFiles(self, xs, xe, ys, zs, ze, x_overlap, z_overlap):
+
+    x = xs
+    tool_width = .15 # TODO!!!!
+    x_off = tool_width - x_overlap
+    x_vec = numpy.arange(xs, xe, step=x_off)
+
+    z_off = tool_width - z_overlap
+
+    # Applying and Loading Files
+    self.getPlasterApplyModFiles(xs, ys, zs, ze, 12)
+    for i in xrange(1, len(x_vec)):
+      load_file = 'load_t' + str(i) + '.mod'
+      apply_file = 'apply_t' + str(i) + '.mod'
+      self.getNextPlasterFiles(i+1, x_off, load_file, apply_file)
+
+    # Reset Track
+    #self.robot.SetDOFValues([0], [0])
+
+    # Smoothing
+    self.getSmoothPlasterMotion(xs, xe, ys, zs, ze, z_off)
 
 
 if __name__ == '__main__':
