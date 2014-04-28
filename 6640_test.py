@@ -289,7 +289,7 @@ class RoboHandler:
 
     return (trans2_times, trans2, max_id)
 
-  def getVerticalTransforms(self, zs=.14, ze=2.6, y=2.35, x=.65, theta=-25):
+  def getVerticalTransforms(self, zs=.14, ze=2.6, y=2.35, x=.65, theta_i=-25, theta_e=-10):
     '''
     Function takes a start and end height to move the robot arm through and returns a list of 4x4
     homogeneous transforms (separated by 1 cm in the z direction) to move through IK.
@@ -307,24 +307,27 @@ class RoboHandler:
                        [ 1.  ,  0.  ,  0.  ,  y   ],
                        [ 0.  ,  1.  ,  0.  ,  zs  ],
                        [ 0.  ,  0.  ,  0.  ,  1.  ]])
+
+    z_vec = numpy.arange(zs, ze, step=.01)
+    thetas = numpy.linspace(theta_i, theta_e, num=len(z_vec))
+    
     # Transform matrix to roll tool by theta degrees
-    r_x_25 = numpy.array([[cos(radians(theta))  , sin(radians(theta)) , 0 , 0],
-                          [-sin(radians(theta)) , cos(radians(theta)) , 0 , 0],
-                          [0                    , 0                   , 1 , 0],
-                          [0                    , 0                   , 0 , 1]])
-    # Initial rooled tool transform
-    t_r = numpy.dot(t_i, r_x_25)
-    while z < ze:
-      t = t_r.copy()
+    i = 0
+
+    for theta, z in zip(thetas, z_vec):
+      r_z_t = numpy.array([[cos(radians(theta))  , sin(radians(theta)) , 0 , 0],
+                         [-sin(radians(theta)) , cos(radians(theta)) , 0 , 0],
+                         [0                    , 0                   , 1 , 0],
+                         [0                    , 0                   , 0 , 1]])
+      t = numpy.dot(t_i, r_z_t)
       # Overwrite height
       t[2][3] = z
       # Append to list and increment
       transforms.append(t)
-      z = z + .01
 
     return transforms
 
-  def getHorizontalTransforms(self, xs=.14, xe=2.6, y=2.35, z=1.5):
+  def getHorizontalTransforms(self, xs=.14, xe=2.6, y=2.35, z=1.5, theta=-10):
     '''
     Function takes a start and end height to move the robot arm through and returns a list of 4x4
     homogeneous transforms (separated by 1 cm in the z direction) to move through IK.
@@ -342,11 +345,23 @@ class RoboHandler:
                        [ 0.  ,  1.  ,  0.  ,  z   ],
                        [ 0.  ,  0.  ,  0.  ,  1.  ]])
 
-    while x < xe:
+    r_x_90 = numpy.array([[1  , 0 , 0  , 0],
+                          [0  , 0 , -1 , 0],
+                          [0  , 1 , 0  , 0],
+                          [0  , 0 , 0  , 1]])
+
+    r_z_t = numpy.array([[cos(radians(theta))  , sin(radians(theta)) , 0 , 0],
+                         [-sin(radians(theta)) , cos(radians(theta)) , 0 , 0],
+                         [0                    , 0                   , 1 , 0],
+                         [0                    , 0                   , 0 , 1]])
+
+    x_vec = numpy.arange(xs, xe, step=.01)
+    for x in x_vec:
       t = t_i.copy()
       t[0][3] = x
+      t = numpy.dot(t, r_x_90)
+      t = numpy.dot(t, r_z_t)
       transforms.append(t)
-      x = x + .01
 
     return transforms
 
@@ -468,6 +483,114 @@ class RoboHandler:
       diff = transforms[i] - t_now
       print diff
 
+  def getPlasterApplyMotion(self, xs, ys, zs, ze, t_move):
+
+    tf = self.getVerticalTransforms(zs=zs, ze=ze, y=ys, x=xs)
+    top = tf[-1].copy()
+    # Decrease y to back robot up from the wall
+    top[1, 3] = top[1, 3] - .4
+    times = numpy.linspace(0, t_move, num=len(tf))
+    j_times, j_traj = self.fminTrackIKArm(times, tf)
+    j_load = j_traj[0][:]
+    # Put 5 at max value to try to load the tool
+    j_load[5] = 2.08
+    robo.robot.SetDOFValues(j_load)
+    time.sleep(1)
+    prev_time = 0
+    for t, traj in zip(j_times, j_traj):
+      dt = t - prev_time
+      self.robot.SetDOFValues(traj)
+      time.sleep(dt)
+      prev_time = t
+
+    time.sleep(1)
+    j_safe_back = [self.robot.GetDOFValues()[0]]
+    j_safe_back.extend(self.moveIK(top).tolist())
+
+    return(j_load, j_safe_back, j_traj, j_times)
+
+  def getPlasterApplyModFiles(self, xs, ys, zs, ze, t_move):
+
+    # Get all Joint Targets and Times
+    load_q, away_q, plaster_q, plaster_times = self.getPlasterApplyMotion(xs, ys, zs, ze, t_move)
+    
+    # Write the Load Position to mod file
+    load_data = [[t, j] for (t, j) in zip([5], [load_q])]
+    mod_file = single_trajectory_program(load_data, a_unit='radian', l_unit='meter')
+    
+    f=open('load1.mod', 'w')
+    f.write(mod_file)
+    f.close()
+
+    # Append move away from wall to plastering move
+    plaster_q.append(away_q)
+    # 5 seconds to move away from wall
+    plaster_times.append(plaster_times[-1] + 5)
+    plaster_data = [[t, j] for (t, j) in zip(plaster_times, plaster_q)]
+
+    mod_file = single_trajectory_program(plaster_data, a_unit='radian', l_unit='meter')
+
+    f = open('apply1.mod', 'w')
+    f.write(mod_file)
+    f.close()
+
+  def getNextPlasterFiles(self, n, x_offset, load_file, move_file):
+
+    new_load_file = 'load'+str(n)+'.mod'
+    l_file = open(load_file, 'r')
+    fn = open(new_load_file, 'w')
+    lc = 1
+    for line in l_file:
+      # If Line is Constant Definition
+      if line.split()[0] in 'CONST':
+        track = float(line.split()[-1].split(',')[0])
+        track = track + x_offset
+        change_l = line.split()
+        change_l[-1]  = change_l[-1].split(',')
+        change_l[-1][0] = str(track)
+        change_l[-1] = ','.join(change_l[-1])
+        change_l = '\t' + ' '.join(change_l) + '\n'
+        fn.write(change_l)
+
+      # Not Constant and don't need to change
+      else:
+        fn.write(line)
+
+    l_file.close()
+    fn.close()
+
+    new_move_file = 'apply'+str(n)+'.mod'
+    f2 = open(move_file, 'r')
+    f2n = open(new_move_file, 'w')
+
+    for line in f2:
+      # If Line is Constant Definition
+      if line.split()[0] in 'CONST':
+        track = float(line.split()[-1].split(',')[0])
+        track = track + x_offset
+        change_l = line.split()
+        change_l[-1]  = change_l[-1].split(',')
+        change_l[-1][0] = str(track)
+        change_l[-1] = ','.join(change_l[-1])
+        change_l = '\t' + ' '.join(change_l) + '\n'
+        f2n.write(change_l)
+
+      # Not Constant and don't need to change
+      else:
+        f2n.write(line)
+
+    f2.close()
+    f2n.close()
+
+  def getSmoothPlasterMotion(self, xs, xe, ys, zs, ze, z_offset):
+    z_vec = numpy.arange(zs, ze, step=z_offset)
+    for z in z_vec:
+      tf = self.getHorizontalTransforms(xs=xs, xe=xe, y=ys, z=z)
+      times = numpy.linspace(0, 10, num=len(tf))
+      out_file = 'smoothing_z' + str(z) + '.mod'
+      self.writeModFile(times, tf, filename=out_file, ik='ikfast')
+
+
 
 if __name__ == '__main__':
 
@@ -498,5 +621,4 @@ if __name__ == '__main__':
   # Drop Into Shell
   import IPython
   IPython.embed()
-  
   
